@@ -70,3 +70,8 @@ button {
     padding: 10px;
     border-bottom: 1px solid #eee;
 }
+
+table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+th { background-color: #f2f2f2; }
+.table-section { margin-top: 20px; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
