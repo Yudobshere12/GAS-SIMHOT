@@ -1,7 +1,11 @@
 <?php
 session_start();
 $conn = new mysqli("localhost", "root", "", "working_project_schema");
-if (!isset($_SESSION['user_id']) || strtolower($_SESSION['role']) !== 'staff') { header("Location: index.php"); exit(); }
+
+if (!isset($_SESSION['user_id']) || strtolower($_SESSION['role']) !== 'staff') { 
+    header("Location: index.php"); 
+    exit(); 
+}
 $uid = $_SESSION['user_id'];
 ?>
 <!DOCTYPE html>
@@ -17,7 +21,10 @@ $uid = $_SESSION['user_id'];
     </style>
 </head>
 <body class="bg-light">
-    <nav class="navbar navbar-dark bg-primary px-4 shadow"><span class="navbar-brand">Staff Terminal</span></nav>
+    <nav class="navbar navbar-dark bg-primary px-4 shadow d-flex justify-content-between">
+        <span class="navbar-brand">Staff Terminal</span>
+        <a href="logout.php" class="btn btn-outline-light btn-sm px-3">Logout</a>
+    </nav>
 
     <div class="container mt-5">
         <div class="row">
@@ -29,8 +36,14 @@ $uid = $_SESSION['user_id'];
                     <h6 class="text-muted">Gas Concentration</h6>
                     <div class="progress mb-3"><div id="ppm-bar" class="progress-bar bg-success" style="width: 0%;"></div></div>
                     <div id="ppm" class="circle">0 PPM</div>
+
+                    <div class="mb-3 text-start">
+                        <label class="form-label fw-bold small text-uppercase">Your Current Location / Room:</label>
+                        <input type="text" id="manual-location" class="form-control form-control-lg border-primary" placeholder="e.g. Kitchen, Lab A, Room 302" value="Main Floor">
+                    </div>
+
                     <div class="d-grid gap-2">
-                        <button class="btn btn-danger btn-lg shadow" onclick="sim()">Simulate Leak</button>
+                        <button class="btn btn-danger btn-lg shadow" onclick="triggerLeak()">Simulate Leak</button>
                         <button class="btn btn-secondary" onclick="res()">System Reset</button>
                     </div>
                 </div>
@@ -42,7 +55,11 @@ $uid = $_SESSION['user_id'];
                         <tbody>
                             <?php
                             $logs = $conn->query("SELECT action, created_at FROM user_activity_logs WHERE user_id = '$uid' ORDER BY created_at DESC LIMIT 10");
-                            while($l = $logs->fetch_assoc()) echo "<tr><td>{$l['action']}</td><td class='text-muted'>{$l['created_at']}</td></tr>";
+                            if ($logs) {
+                                while($l = $logs->fetch_assoc()) {
+                                    echo "<tr><td>{$l['action']}</td><td class='text-muted small'>{$l['created_at']}</td></tr>";
+                                }
+                            }
                             ?>
                         </tbody>
                     </table>
@@ -53,6 +70,7 @@ $uid = $_SESSION['user_id'];
 
     <script>
         let audioCtx = null, pulse = null;
+
         function updateUI(p) {
             document.getElementById('ppm').innerText = p + " PPM";
             document.getElementById('ppm-bar').style.width = (p/1000*100) + "%";
@@ -66,32 +84,40 @@ $uid = $_SESSION['user_id'];
                 stopBuzzer();
             }
         }
+
+        function triggerLeak() {
+            updateUI(450);
+            logAction("Leak Detected");
+        }
+
+        function res() { 
+            updateUI(0); 
+            document.getElementById('admin-feedback').classList.add('d-none'); 
+            logAction("System Reset"); 
+        }
+
+        function logAction(act) { 
+            let locValue = document.getElementById('manual-location').value;
+            let fd = new FormData(); 
+            fd.append('action', act); 
+            fd.append('location', locValue); // Send the text box value instead of GPS
+
+            fetch('log_action.php', { method: 'POST', body: fd })
+            .then(() => setTimeout(() => location.reload(), 1000)); 
+        }
+
         function startBuzzer() {
-            if (!audioCtx) audioCtx = new AudioContext();
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             pulse = setInterval(() => {
                 let o = audioCtx.createOscillator(); let g = audioCtx.createGain();
-                o.type = 'square'; o.frequency.value = 880; g.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                o.type = 'square'; o.frequency.value = 880; 
+                g.gain.setValueAtTime(0.1, audioCtx.currentTime);
                 g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
-                o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.5);
+                o.connect(g); g.connect(audioCtx.destination); 
+                o.start(); o.stop(audioCtx.currentTime + 0.5);
             }, 600);
         }
         function stopBuzzer() { clearInterval(pulse); pulse = null; }
-        function sim() { updateUI(450); log("Leak Detected"); }
-        function res() { updateUI(0); document.getElementById('admin-feedback').classList.add('d-none'); log("System Reset"); }
-        function log(a) { 
-            let fd = new FormData(); fd.append('action', a); 
-            fetch('log_action.php', { method: 'POST', body: fd }).then(()=>setTimeout(()=>location.reload(), 1000)); 
-        }
-        
-        setInterval(() => {
-            fetch('check_alert.php').then(r => r.json()).then(data => {
-                let box = document.getElementById('admin-feedback');
-                if (data.is_active == 1 && data.acknowledged_by_admin == 1) {
-                    box.classList.remove('d-none');
-                    document.getElementById('ack-time').innerText = data.ack_time;
-                } else box.classList.add('d-none');
-            });
-        }, 3000);
     </script>
 </body>
 </html>

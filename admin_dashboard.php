@@ -14,8 +14,14 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') { header("Loc
         .blink { animation: blinker 1s linear infinite; }
         @keyframes blinker { 50% { opacity: 0.3; } }
         .gauge-text { font-size: 2.2rem; font-weight: bold; transition: 0.3s; }
-        /* Style for the container of the map*/
-        #map { height: 400px; width: 100%; border-radius: 10px; border: 1px solid #ddd; margin-top: 20px; }
+        #map { height: 450px; width: 100%; border-radius: 10px; border: 2px solid #0d6efd; margin-top: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        /* Real-time Pulse Effect for Accuracy */
+        .leaflet-marker-icon.pulse { animation: pulse-red 2s infinite; border-radius: 50%; }
+        @keyframes pulse-red { 
+            0% { box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(255, 0, 0, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 0, 0, 0); }
+        }
     </style>
 </head>
 <body class="bg-light">
@@ -75,7 +81,8 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') { header("Loc
         </div>
 
         <div class="card p-4 shadow border-0 mb-5">
-            <h3 class="text-primary fw-bold mb-3">📍 Gas Leaked Monitoring</h3>
+            <h3 class="text-primary fw-bold mb-1">📍 Live Location Tracking</h3>
+            <p class="text-muted small">Mapping precise coordinates from the reporting staff device.</p>
             <div id="map"></div>
         </div>
     </div>
@@ -93,11 +100,20 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') { header("Loc
     
     <script>
         let isAcknowledged = false;
-
-        // 4. GIDUGANG: INITIALIZE ANG MAP
-        const map = L.map('map').setView([8.3697, 124.8644], 15);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
         let currentMarker = null;
+
+        // Initialize Map with High Accuracy Zoom
+        const map = L.map('map', {
+            center: [8.3697, 124.8644],
+            zoom: 15,
+            zoomControl: true,
+            scrollWheelZoom: true
+        });
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
 
         function filterLogs() {
             let input = document.getElementById("logSearch").value.toLowerCase();
@@ -107,7 +123,6 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') { header("Loc
             }
         }
 
-        // 5. COMBINED: Dashboard Updates and Map Updates
         function updateDashboardAndMap() {
             fetch('check_alert.php').then(r => r.json()).then(data => {
                 const alertBox = document.getElementById('admin-sticky-alert');
@@ -115,33 +130,38 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') { header("Loc
                 const ppmText = document.getElementById('live-ppm');
 
                 if (data.is_active == 1) {
-                    // Update UI Text
                     statusText.innerText = "⚠️ EMERGENCY MODE";
                     statusText.className = "status-badge bg-danger text-white d-inline-block mx-auto blink";
-                    ppmText.innerText = "450 PPM";
+                    ppmText.innerText = (data.ppm ? data.ppm : "450") + " PPM";
                     ppmText.className = "gauge-text text-danger";
 
                     if (!isAcknowledged && data.acknowledged_by_admin == 0) {
                         alertBox.classList.remove('d-none');
-                        document.getElementById('leak-msg').innerText = "Critical alert triggered by " + data.triggered_by;
+                        document.getElementById('leak-msg').innerText = "Critical alert at " + (data.location || "Staff Location") + " triggered by " + data.triggered_by;
                         playAdminChime();
-                    } else if (data.acknowledged_by_admin == 1) {
-                        alertBox.classList.add('d-none');
                     }
 
-                    // UPDATE MAP MARKER
+                    // ACCURATE LOCATION LOGIC
                     if (data.lat && data.lng) {
-                        const staffLat = parseFloat(data.lat);
-                        const staffLng = parseFloat(data.lng);
-                        if (currentMarker) map.removeLayer(currentMarker);
-                        currentMarker = L.marker([staffLat, staffLng]).addTo(map)
-                            .bindPopup(`<b>🚨 EMERGENCY: ${data.location}</b><br>Staff: ${data.triggered_by}`)
-                            .openPopup();
-                        map.flyTo([staffLat, staffLng], 17);
+                        const sLat = parseFloat(data.lat);
+                        const sLng = parseFloat(data.lng);
+
+                        if (currentMarker) {
+                            // Update existing marker position smoothly
+                            currentMarker.setLatLng([sLat, sLng]);
+                        } else {
+                            // Create new marker with Pulse effect
+                            currentMarker = L.marker([sLat, sLng]).addTo(map)
+                                .bindPopup(`<b>🚨 EMERGENCY DETECTED</b><br>Staff: ${data.triggered_by}<br>Coord: ${sLat}, ${sLng}`)
+                                .openPopup();
+                            
+                            // Zoom closely into the exact coordinate
+                            map.flyTo([sLat, sLng], 18, { animate: true, duration: 1.5 });
+                        }
                     }
 
                 } else {
-                    // Reset UI
+                    // Reset to Safe Mode
                     statusText.innerText = "SYSTEM ONLINE";
                     statusText.className = "status-badge bg-success text-white d-inline-block mx-auto";
                     ppmText.innerText = "0 PPM";
@@ -149,13 +169,13 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') { header("Loc
                     alertBox.classList.add('d-none');
                     isAcknowledged = false;
                     
-                    // Remove the map marker if there is no more leak
                     if (currentMarker) {
                         map.removeLayer(currentMarker);
                         currentMarker = null;
+                        map.flyTo([8.3697, 124.8644], 15); // Return to home view
                     }
                 }
-            });
+            }).catch(e => console.log("Searching for live data..."));
         }
 
         function acknowledgeSticky() {
@@ -176,8 +196,8 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') { header("Loc
             osc.start(); osc.stop(ctx.currentTime + 0.6);
         }
 
-        // Kada 2.5 Seconds to refresh all data
-        setInterval(updateDashboardAndMap, 2500);
+        // Refresh every 2 seconds for high-frequency tracking
+        setInterval(updateDashboardAndMap, 2000);
     </script>
 </body>
 </html>
